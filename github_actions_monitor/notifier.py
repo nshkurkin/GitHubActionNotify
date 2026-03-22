@@ -1,17 +1,17 @@
 """
 notifier.py — Windows toast notification logic.
 
-Wraps plyer's notification API so the rest of the application can fire
+Wraps winotify's Notification API so the rest of the application can fire
 structured, consistently-formatted toasts without knowing the underlying
 library.  All notification messages are logged as well so the log file
 provides a full audit trail even when toasts are missed.
 
 Note on click-to-open behaviour
 --------------------------------
-plyer does not reliably support click callbacks on Windows toast
-notifications.  For "click to open" behaviour the tray menu provides a
-per-repo "Open last run" option.  The notification message for failures
-explicitly says "(see tray menu)" so users know where to go.
+winotify supports an on_click callback but it requires a registered app_id.
+For "click to open" behaviour the tray menu provides a per-repo
+"Open last run" option.  The notification message for failures explicitly
+says "(see tray menu)" so users know where to go.
 """
 
 from __future__ import annotations
@@ -24,15 +24,15 @@ logger = logging.getLogger(__name__)
 
 _APP_NAME = "GitHub Actions Monitor"
 
-# Attempt to import plyer; if unavailable the notifier degrades gracefully
-# and only logs messages (useful for headless CI environments).
+# Attempt to import winotify; if unavailable the notifier degrades gracefully
+# and only logs messages (useful for headless/non-Windows environments).
 try:
-    from plyer import notification as _plyer_notify
+    from winotify import Notification as _WinNotification
 
-    _PLYER_AVAILABLE = True
+    _WINOTIFY_AVAILABLE = True
 except ImportError:  # pragma: no cover
-    _PLYER_AVAILABLE = False
-    logger.warning("plyer is not installed — toast notifications disabled.")
+    _WINOTIFY_AVAILABLE = False
+    logger.warning("winotify is not installed — toast notifications disabled.")
 
 
 def _toast(title: str, message: str, timeout: int = 8) -> None:
@@ -46,20 +46,23 @@ def _toast(title: str, message: str, timeout: int = 8) -> None:
     message:
         Body text of the toast.
     timeout:
-        How many seconds before the toast auto-dismisses (best-effort;
-        Windows may override this).
+        Approximate display duration in seconds.  winotify maps this to
+        ``"short"`` (≤7 s) or ``"long"`` (>7 s); Windows ultimately controls
+        the exact dismissal time.
     """
     logger.info("NOTIFY  %s | %s", title, message)
-    if not _PLYER_AVAILABLE:
+    if not _WINOTIFY_AVAILABLE:
         return
     try:
-        _plyer_notify.notify(
-            app_name=_APP_NAME,
+        duration = "short" if timeout <= 7 else "long"
+        toast = _WinNotification(
+            app_id=_APP_NAME,
             title=title,
-            message=message,
-            timeout=timeout,
+            msg=message,
+            duration=duration,
         )
-    except Exception as exc:  # plyer can raise on misconfigured systems
+        toast.show()
+    except Exception as exc:
         logger.warning("Toast notification failed: %s", exc)
 
 
