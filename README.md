@@ -1,8 +1,50 @@
 # GH Actions Monitor
 
-A lightweight Windows system tray app that watches your GitHub Actions workflow
-runs and fires desktop notifications when they start, succeed, fail, or are
-cancelled.
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-0078d4?logo=windows&logoColor=white)
+![Build](https://github.com/nshkurkin/GitHubActionNotify/actions/workflows/build.yml/badge.svg)
+![License](https://img.shields.io/badge/license-Apache%202.0-blue)
+![Python](https://img.shields.io/badge/python-3.10%2B-yellow?logo=python&logoColor=white)
+
+**GH Actions Monitor** is a lightweight Windows system tray app that watches
+your GitHub Actions workflow runs and fires desktop notifications when they
+start, succeed, fail, or are cancelled — so you never have to keep a browser
+tab open just to know when a build finishes.
+
+- Real-time toast notifications (Windows 10/11)
+- Monitors any mix of public and private repositories
+- Configurable poll interval, trigger filter, and lookback window
+- Runs quietly in the system tray; zero browser tabs required
+- Single-file EXE — no installer, no dependencies to manage
+
+---
+
+## Contents
+
+- [Quick Start](#quick-start)
+- [Screenshot](#screenshot)
+- [Requirements](#requirements)
+- [GitHub Personal Access Token](#github-personal-access-token-pat)
+- [Setup](#setup)
+- [Configuration](#configuration)
+- [Adding to Windows Startup](#adding-to-windows-startup)
+- [Building the EXE](#building-the-exe-yourself)
+- [Logs](#logs)
+- [Contributing](#contributing)
+
+---
+
+## Quick Start
+
+1. Download `GH Actions Monitor.exe` from the [latest release](../../releases/latest)
+2. Run it — a default config is created and opened in Notepad automatically
+3. Paste your GitHub PAT and set `watch = owner/repo` (or `all`)
+4. Save the config; the tray icon appears in the bottom-right of your taskbar
+
+---
+
+## Screenshot
+
+<!-- TODO: add a screenshot of the toast notification and/or tray icon -->
 
 ---
 
@@ -155,3 +197,18 @@ Log files (rotating, max 1 MB × 2 backups) are written to:
 ```
 
 Open them via **right-click tray icon → Logs**.
+
+---
+
+## Contributing
+
+Bug reports and pull requests are welcome. For major changes please open an
+issue first to discuss what you'd like to change.
+
+**Dev setup:**
+
+```bash
+pip install -r requirements.txt
+cd github_actions_monitor
+python main.py
+```
