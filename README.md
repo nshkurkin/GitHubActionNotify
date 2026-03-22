@@ -82,6 +82,15 @@ cd github_actions_monitor
 python main.py
 ```
 
+### Building the EXE yourself
+
+```bash
+pip install -r requirements.txt pyinstaller
+cd github_actions_monitor
+pyinstaller --noconsole --onefile --name "GH Actions Monitor" main.py
+# Output: github_actions_monitor/dist/GH Actions Monitor.exe
+```
+
 ## Configuration
 
 The config file is created automatically on first run at:
@@ -120,14 +129,6 @@ To have the app launch automatically when you log in:
 1. Press `Win+R`, type `shell:startup`, press Enter
 2. Create a shortcut to `GH Actions Monitor.exe` in that folder
 
-## Building the EXE yourself
-
-```bash
-pip install -r requirements.txt pyinstaller
-cd github_actions_monitor
-pyinstaller --noconsole --onefile --name "GH Actions Monitor" main.py
-# Output: github_actions_monitor/dist/GH Actions Monitor.exe
-```
 
 ## Logs
 
@@ -139,10 +140,3 @@ Log files (rotating, max 1 MB × 2 backups) are written to:
 
 Open them via **right-click tray icon → Logs**.
 
-## Dev Setup
-
-```bash
-pip install -r requirements.txt
-cd github_actions_monitor
-python main.py
-```
