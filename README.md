@@ -8,7 +8,7 @@ cancelled.
 
 ## Requirements
 
-- Windows 10 or 11 (the notification system relies on Windows toast notifications)
+- Windows 10 or 11 (toast notifications use the Windows Runtime API via `winotify`)
 - A GitHub Personal Access Token (see below)
 
 ---
