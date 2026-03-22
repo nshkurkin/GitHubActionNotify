@@ -1,0 +1,97 @@
+name: Build Windows EXE
+
+# Triggers:
+#   - Every push to master/main → artifact saved on the run summary page
+#   - Every push of a v* tag   → artifact + a GitHub Release with the EXE attached
+#   - Manual trigger           → "Run workflow" button in the Actions tab
+
+on:
+  push:
+    branches:
+      - master
+      - main
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: PyInstaller (windows-latest)
+    runs-on: windows-latest
+
+    # Allow the release step to create GitHub Releases and upload assets
+    permissions:
+      contents: write
+
+    steps:
+      # ------------------------------------------------------------------ #
+      # 1. Source code
+      # ------------------------------------------------------------------ #
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------ #
+      # 2. Python runtime
+      # ------------------------------------------------------------------ #
+      - name: Set up Python 3.12
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # ------------------------------------------------------------------ #
+      # 3. Dependency cache (keyed on requirements.txt content)
+      # ------------------------------------------------------------------ #
+      - name: Cache pip packages
+        uses: actions/cache@v4
+        with:
+          path: ~\AppData\Local\pip\Cache
+          key: ${{ runner.os }}-pip-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-pip-
+
+      # ------------------------------------------------------------------ #
+      # 4. Install runtime deps + PyInstaller
+      # ------------------------------------------------------------------ #
+      - name: Install dependencies
+        run: pip install -r requirements.txt pyinstaller
+
+      # ------------------------------------------------------------------ #
+      # 5. Build the standalone EXE
+      #
+      #    IMPORTANT: we run PyInstaller from *inside* github_actions_monitor/
+      #    because main.py uses bare imports (from github_api import ...) that
+      #    resolve to sibling files in the same directory.  The working-directory
+      #    key sets the CWD for this step only; the dist/ folder is created
+      #    at github_actions_monitor/dist/.
+      # ------------------------------------------------------------------ #
+      - name: Build EXE with PyInstaller
+        working-directory: github_actions_monitor
+        run: >
+          pyinstaller
+          --noconsole
+          --onefile
+          --name "GH Actions Monitor"
+          main.py
+
+      # ------------------------------------------------------------------ #
+      # 6. Upload as a workflow artifact (available for 30 days)
+      #    Download from: Actions → this run → Artifacts section
+      # ------------------------------------------------------------------ #
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: GH-Actions-Monitor-${{ github.sha }}
+          path: "github_actions_monitor/dist/GH Actions Monitor.exe"
+          if-no-files-found: error
+          retention-days: 30
+
+      # ------------------------------------------------------------------ #
+      # 7. Create a GitHub Release and attach the EXE (tag pushes only)
+      #    Tag format: v1.2.3  →  release title "v1.2.3"
+      # ------------------------------------------------------------------ #
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: "github_actions_monitor/dist/GH Actions Monitor.exe"
+          generate_release_notes: true

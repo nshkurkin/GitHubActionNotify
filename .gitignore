@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+dist/
+build/
+*.spec
+*.egg-info/
+.venv/
+venv/
+env/
+
+# Runtime data (stored in %LOCALAPPDATA%)
+config.ini
+seen_runs.json
+*.log
