@@ -57,6 +57,8 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 CONFIG_PATH = DATA_DIR / "config.ini"
 LOG_PATH = DATA_DIR / "github_monitor.log"
 
+REPO_URL = "https://github.com/nshkurkin/GitHubActionNotify"
+
 # ---------------------------------------------------------------------------
 # Logging — rotating file, no stdout (no console when built with --noconsole)
 # ---------------------------------------------------------------------------
@@ -428,6 +430,9 @@ class MonitorApp:
             except OSError as exc:
                 logger.error("Failed to open log file: %s", exc)
 
+        def _open_about(_icon: pystray.Icon, _item: pystray.MenuItem) -> None:
+            webbrowser.open(REPO_URL)
+
         def _quit(_icon: pystray.Icon, _item: pystray.MenuItem) -> None:
             logger.info("Quit requested from tray menu.")
             self._stop_event.set()
@@ -473,6 +478,7 @@ class MonitorApp:
             pystray.MenuItem("Edit Config", _edit_config),
             pystray.MenuItem("Refresh Config", _refresh_config),
             pystray.MenuItem("Logs", _open_logs),
+            pystray.MenuItem("About / Source", _open_about),
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Quit", _quit),
         )
