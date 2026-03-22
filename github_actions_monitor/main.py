@@ -86,18 +86,33 @@ logger = logging.getLogger(__name__)
 
 _DEFAULT_CONFIG = """\
 [github]
+; Personal Access Token — two options:
+;
+;   Classic PAT (github.com → Settings → Developer settings → Tokens (classic))
+;     Scope needed for PRIVATE repos : repo
+;     Scope needed for PUBLIC repos only: public_repo
+;     Do NOT add the "workflow" scope — that is for writing workflow files, not reading them.
+;
+;   Fine-grained PAT (github.com → Settings → Developer settings → Fine-grained tokens)
+;     Repository permissions:
+;       Actions   → Read-only
+;       Metadata  → Read-only  (auto-selected; required for all repo access)
+;     No account permissions are needed.
+;
 token = YOUR_PAT_HERE
 username = your-github-username
 
 [repos]
-; comma-separated list, or "all" to auto-discover all repos (up to 50)
+; Comma-separated list of owner/repo pairs, or "all" to auto-discover all your repos (up to 50).
 watch = owner/repo1, owner/repo2
 
 [settings]
+; How often to poll GitHub, in seconds (minimum 10).
 poll_interval_seconds = 30
-; only notify for workflows triggered by: push, pull_request, workflow_dispatch, or "all"
+; Only notify for workflows triggered by a specific event, or "all".
+; Valid values: push, pull_request, workflow_dispatch, schedule, all
 trigger_filter = all
-; lookback window in minutes — ignore runs older than this on startup
+; On startup, ignore runs older than this many minutes to avoid a flood of old notifications.
 lookback_minutes = 60
 """
 
