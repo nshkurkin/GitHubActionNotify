@@ -351,20 +351,34 @@ class MonitorApp:
         self._stop_event = threading.Event()
         self._auth_failed = False
         self._rate_limit_until: Optional[datetime] = None
+        # Set to True whenever the config is reloaded so the next poll runs as
+        # a startup seed (absorb existing runs without notifying) rather than
+        # firing notifications for every historical run.
+        self._pending_startup_seed = False
 
         # Ensure config exists; notify if freshly created
         self._first_run = not self._config_manager.exists()
         if self._first_run:
             self._config_manager.create_default()
 
-        self._reload_config()
+        self._reload_config(is_initial=True)
 
     # ------------------------------------------------------------------
     # Config management
     # ------------------------------------------------------------------
 
-    def _reload_config(self) -> None:
-        """Load (or reload) config.ini and re-initialise API + state objects."""
+    def _reload_config(self, is_initial: bool = False) -> None:
+        """
+        Load (or reload) config.ini and re-initialise API + state objects.
+
+        Parameters
+        ----------
+        is_initial:
+            True only during ``__init__``.  For every subsequent reload
+            (e.g. "Refresh Config" tray action) this is False, which causes
+            the next poll to run as a startup seed so historical runs are
+            absorbed silently rather than triggering a notification flood.
+        """
         logger.info("Loading configuration from %s", self._config_manager.path)
         self._config = self._config_manager.load()
         self._state_manager = StateManager(DATA_DIR)
@@ -377,6 +391,10 @@ class MonitorApp:
         else:
             self._api = None
             logger.warning("Token is a placeholder — polling is disabled until config is updated.")
+
+        if not is_initial:
+            # Signal the polling loop to treat the next poll as a startup seed.
+            self._pending_startup_seed = True
 
     # ------------------------------------------------------------------
     # Tray icon + menu
@@ -715,8 +733,12 @@ class MonitorApp:
                 self._poll_event.clear()
             if self._stop_event.is_set():
                 break
+            # If the config was reloaded since the last poll, treat this as a
+            # startup seed: absorb current run states without notifying.
+            is_startup = self._pending_startup_seed
+            self._pending_startup_seed = False
             try:
-                self.poll_once(is_startup=False)
+                self.poll_once(is_startup=is_startup)
             except Exception as exc:
                 logger.exception("Unexpected error during poll: %s", exc)
 
