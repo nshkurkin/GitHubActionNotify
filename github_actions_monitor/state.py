@@ -50,6 +50,7 @@ class StateManager:
         self._data_dir = data_dir
         self._path = data_dir / self._FILENAME
         self._runs: Dict[int, RunState] = {}
+        self._dirty = False
         self._load()
 
     # ------------------------------------------------------------------
@@ -75,12 +76,15 @@ class StateManager:
             logger.warning("Could not load seen_runs.json: %s", exc)
 
     def save(self) -> None:
-        """Persist all known run states to disk."""
+        """Persist all known run states to disk (no-op when nothing has changed)."""
+        if not self._dirty:
+            return
         try:
             self._data_dir.mkdir(parents=True, exist_ok=True)
             payload = {str(run_id): asdict(state) for run_id, state in self._runs.items()}
             with open(self._path, "w", encoding="utf-8") as fh:
                 json.dump(payload, fh, indent=2)
+            self._dirty = False
         except OSError as exc:
             logger.error("Failed to save seen_runs.json: %s", exc)
 
@@ -94,13 +98,14 @@ class StateManager:
 
     def update(self, state: RunState) -> None:
         """
-        Record *state* as the latest known state for its run and persist to disk.
+        Record *state* as the latest known state for its run.
 
         Call this after a notification has been fired so the transition is not
-        repeated on the next poll.
+        repeated on the next poll.  Persistence is deferred: call :meth:`save`
+        once at the end of each poll cycle rather than on every update.
         """
         self._runs[state.run_id] = state
-        self.save()
+        self._dirty = True
 
     def mark_seen_no_notify(self, state: RunState) -> None:
         """
@@ -111,8 +116,7 @@ class StateManager:
         happened before the app launched.
         """
         self._runs[state.run_id] = state
-        # Batch-save happens at startup_seed() caller level; individual saves
-        # here would be expensive for large repos with many runs.
+        self._dirty = True
 
     def is_seen(self, run_id: int) -> bool:
         """Return ``True`` if *run_id* has ever been recorded."""
