@@ -33,6 +33,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from github_api import AuthError, GitHubAPI, GitHubAPIError, RateLimitError
 from notifier import Notifier
+from power_monitor import start_power_monitor
 from state import RunState, StateManager
 
 # ---------------------------------------------------------------------------
@@ -109,8 +110,9 @@ username = your-github-username
 watch = owner/repo1, owner/repo2
 
 [settings]
-; How often to poll GitHub, in seconds (minimum 10).
-poll_interval_seconds = 30
+; How often to poll GitHub, in seconds (minimum 30).
+; Lower values increase energy usage and GitHub API rate-limit consumption.
+poll_interval_seconds = 60
 ; Only notify for workflows triggered by a specific event, or "all".
 ; Valid values: push, pull_request, workflow_dispatch, schedule, all
 trigger_filter = all
@@ -187,9 +189,9 @@ class ConfigManager:
         watch = parser.get("repos", "watch", fallback="")
 
         try:
-            poll_interval = max(10, parser.getint("settings", "poll_interval_seconds", fallback=30))
+            poll_interval = max(30, parser.getint("settings", "poll_interval_seconds", fallback=60))
         except ValueError:
-            poll_interval = 30
+            poll_interval = 60
 
         trigger_filter = parser.get("settings", "trigger_filter", fallback="all").strip().lower()
 
@@ -280,6 +282,9 @@ def _generate_icon(color: str = "#24292e", badge_color: Optional[str] = None) ->
     return img
 
 
+# How long (seconds) to cache the auto-discovered repo list when watch = "all"
+_REPO_CACHE_TTL = 600  # 10 minutes
+
 # Dot prefixes for repo status items in the menu
 _DOT_GREEN = "\U0001f7e2"   # 🟢
 _DOT_RED = "\U0001f534"     # 🔴
@@ -351,8 +356,16 @@ class MonitorApp:
         # Polling control
         self._poll_event = threading.Event()
         self._stop_event = threading.Event()
+        self._sleep_event = threading.Event()   # set while system is suspended
         self._auth_failed = False
         self._rate_limit_until: Optional[datetime] = None
+
+        # Repo list cache (used when watch = "all")
+        self._cached_repos: Optional[List[str]] = None
+        self._repo_cache_expiry: float = 0.0
+
+        # Last tray render snapshot — used to skip redundant icon/menu rebuilds
+        self._last_tray_state: Optional[Tuple[Optional[str], tuple]] = None
         # Set to True whenever the config is reloaded so the next poll runs as
         # a startup seed (absorb existing runs without notifying) rather than
         # firing notifications for every historical run.
@@ -397,6 +410,11 @@ class MonitorApp:
         if not is_initial:
             # Signal the polling loop to treat the next poll as a startup seed.
             self._pending_startup_seed = True
+            # Invalidate the repo list cache so the new config is reflected immediately.
+            self._cached_repos = None
+            self._repo_cache_expiry = 0.0
+            # Force tray icon/menu to redraw after config reload.
+            self._last_tray_state = None
 
     # ------------------------------------------------------------------
     # Tray icon + menu
@@ -496,6 +514,13 @@ class MonitorApp:
             badge = "#28a745"  # green
         else:
             badge = None
+
+        # Skip the (relatively expensive) Pillow render and menu rebuild if
+        # nothing visible has changed since the last update.
+        tray_state = (badge, tuple(sorted(self._repo_statuses.items())))
+        if tray_state == self._last_tray_state:
+            return
+        self._last_tray_state = tray_state
 
         self._tray.icon = _generate_icon(badge_color=badge)
         self._tray.menu = self._build_menu()
@@ -650,19 +675,31 @@ class MonitorApp:
 
         lookback = self._config.lookback_minutes if is_startup else None
 
-        try:
-            repos = self._api.get_repos(self._config.watch)
-        except AuthError:
-            logger.error("Authentication error fetching repo list.")
-            self._auth_failed = True
-            self._notifier.notify_auth_error()
-            return
-        except RateLimitError as exc:
-            self._handle_rate_limit(exc)
-            return
-        except GitHubAPIError as exc:
-            logger.warning("Could not fetch repo list: %s", exc)
-            return
+        # For watch=all, reuse the cached repo list until it expires.
+        now = time.monotonic()
+        if (
+            self._config.watch.strip().lower() == "all"
+            and self._cached_repos is not None
+            and now < self._repo_cache_expiry
+        ):
+            repos = self._cached_repos
+        else:
+            try:
+                repos = self._api.get_repos(self._config.watch)
+            except AuthError:
+                logger.error("Authentication error fetching repo list.")
+                self._auth_failed = True
+                self._notifier.notify_auth_error()
+                return
+            except RateLimitError as exc:
+                self._handle_rate_limit(exc)
+                return
+            except GitHubAPIError as exc:
+                logger.warning("Could not fetch repo list: %s", exc)
+                return
+            if self._config.watch.strip().lower() == "all":
+                self._cached_repos = repos
+                self._repo_cache_expiry = now + _REPO_CACHE_TTL
 
         if not repos:
             logger.warning("No repositories resolved from watch config: %r", self._config.watch)
@@ -692,10 +729,11 @@ class MonitorApp:
             if repo not in self._repo_statuses:
                 self._repo_statuses[repo] = None
 
+        # Persist any state changes accumulated during this poll cycle in one write.
+        assert self._state_manager is not None
+        self._state_manager.save()
+
         if is_startup:
-            # Persist the seeded run states in one go
-            assert self._state_manager is not None
-            self._state_manager.save()
             logger.info("Startup seed complete for %d repo(s).", len(repos))
 
         self._update_tray_icon()
@@ -739,6 +777,10 @@ class MonitorApp:
                 self._poll_event.clear()
             if self._stop_event.is_set():
                 break
+            # Skip the poll if the system is suspended (power_monitor sets this).
+            if self._sleep_event.is_set():
+                logger.debug("Polling skipped: system is suspended.")
+                continue
             # If the config was reloaded since the last poll, treat this as a
             # startup seed: absorb current run states without notifying.
             is_startup = self._pending_startup_seed
@@ -791,6 +833,7 @@ class MonitorApp:
             menu=self._build_menu(),
         )
 
+        start_power_monitor(self._sleep_event, self._poll_event)
         self._start_polling_thread()
 
         try:

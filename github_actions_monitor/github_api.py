@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime, timezone
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 import requests
 
@@ -78,6 +78,9 @@ class GitHubAPI:
                 "X-GitHub-Api-Version": "2022-11-28",
             }
         )
+        # ETag-based conditional request caches: keyed by (path, sorted-params).
+        self._etag_cache: Dict[str, str] = {}
+        self._response_cache: Dict[str, Any] = {}
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -87,17 +90,37 @@ class GitHubAPI:
         """
         Perform a GET request and return the parsed JSON body.
 
+        Uses HTTP conditional requests (ETag / If-None-Match) to avoid
+        re-downloading unchanged responses.  A 304 Not Modified response
+        returns the previously cached body at no bandwidth cost.
+
         Raises typed exceptions for 401, 403/429, and 404 responses.
         All other non-2xx responses raise :class:`GitHubAPIError`.
         """
         url = f"{self._BASE}{path}"
+        cache_key = path + str(sorted(params.items()) if params else "")
+        headers: dict = {}
+        if cache_key in self._etag_cache:
+            headers["If-None-Match"] = self._etag_cache[cache_key]
+
         try:
-            response = self._session.get(url, params=params, timeout=15)
+            response = self._session.get(url, params=params, headers=headers, timeout=15)
         except requests.RequestException as exc:
             raise GitHubAPIError(f"Network error: {exc}") from exc
 
+        if response.status_code == 304:
+            logger.debug("304 Not Modified for %s — reusing cached response.", path)
+            return self._response_cache[cache_key]
+
         self._raise_for_status(response)
-        return response.json()
+        data = response.json()
+
+        etag = response.headers.get("ETag")
+        if etag:
+            self._etag_cache[cache_key] = etag
+            self._response_cache[cache_key] = data
+
+        return data
 
     @staticmethod
     def _raise_for_status(response: requests.Response) -> None:
