@@ -181,14 +181,37 @@ class GitHubAPI:
         return repos
 
     def _discover_repos(self) -> List[str]:
-        """Return up to 50 repos visible to the authenticated token."""
+        """Return repos visible to the authenticated token that have Actions workflows."""
         data = self._get(
             "/user/repos",
             params={"type": "all", "per_page": 50, "sort": "pushed"},
         )
         repos = [item["full_name"] for item in data if isinstance(item, dict)]
-        logger.info("Auto-discovered %d repo(s).", len(repos))
-        return repos
+        logger.info("Auto-discovered %d repo(s) total.", len(repos))
+
+        filtered = [r for r in repos if self._has_workflows(r)]
+        logger.info("Filtered to %d repo(s) with workflows defined.", len(filtered))
+        return filtered
+
+    def _has_workflows(self, repo: str) -> bool:
+        """Return True if *repo* has at least one Actions workflow defined."""
+        try:
+            data = self._get(
+                f"/repos/{repo}/actions/workflows",
+                params={"per_page": 1},
+            )
+        except RepoNotFoundError:
+            logger.warning("Repo %s not found while checking workflows — skipping.", repo)
+            return False
+        except RateLimitError:
+            raise
+        except GitHubAPIError as exc:
+            logger.warning("Could not check workflows for %s (%s) — keeping.", repo, exc)
+            return True
+
+        if not isinstance(data, dict):
+            return False
+        return data.get("total_count", 0) > 0
 
     def get_workflow_runs(
         self,
